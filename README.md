@@ -8,6 +8,10 @@
 
 A tiny hand on a stick that points at things on your Mac screen.
 
+**Linux (Ubuntu, X11):** a port lives in [`linux/`](linux/README.md). Install with
+`linux/install.sh` and start it from the app grid. Status and known limits are in
+[`linux/README.md`](linux/README.md).
+
 <img src="./.github/banner.jpg" alt="TinyHand: a tiny hand for your Mac" />
 
 [![Download for macOS](https://img.shields.io/badge/Download_for_macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/nilbuild/tinyhand/releases/latest/download/TinyHand.dmg)

@@ -9,11 +9,16 @@ the module layout.
 - Ubuntu with an **X11 session**. Log out, pick "Ubuntu on Xorg" at the login
   screen, and log back in. Wayland can't capture global mouse input or draw a
   click-through overlay, so it isn't supported.
-- Python 3.12 with GTK 3 bindings, Pillow and cairo bindings:
+- Python 3.12 with GTK 3 bindings, Pillow and cairo bindings, and the AppIndicator
+  library for the tray icon:
 
   ```sh
-  sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 python3-pil pulseaudio-utils
+  sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 python3-pil \
+      gir1.2-ayatanaappindicator3-0.1 pulseaudio-utils
   ```
+
+  Without the AppIndicator package the tray falls back to a GTK status icon, which
+  draws transparent pixels as black on the top bar.
 
   `python-xlib` is vendored in `linux/vendor/` (see below). `pulseaudio-utils`
   provides `paplay` for tap sounds; `pipewire-bin` provides `pw-play`, and either
@@ -85,8 +90,9 @@ Not yet confirmed:
 - Multi-monitor layouts.
 
 Known limits:
-- X11 only. Under Wayland (XWayland) the desktop's full-screen guard window
-  intercepts simulated clicks, which is why drag tests fail there.
+- X11 only. TinyHand runs through XWayland on a Wayland session, so with a fractional
+  display scale (for example 150%) it is drawn blurry. Use 100% or 200% scale, or a
+  native Xorg session, for sharp output. Other apps are unaffected.
 - Shortcuts can be changed in Settings → General: click a shortcut button, then
   press the new keys (Escape cancels). Tested: a recorded Ctrl+Alt+J turns the
   pointer on.
