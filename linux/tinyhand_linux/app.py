@@ -153,23 +153,38 @@ class TinyHandApp(Gtk.Application):
         GLib.timeout_add(200, lambda: (action(), False)[1])
 
     def _rebuild_pointer_menu(self) -> None:
-        """Radio items for the pinned pointers; the current one is ticked."""
+        """Radio items for every pointer: pinned ones first, then all the others in groups of 12."""
         from . import pointer_style
 
         for child in self._pointer_submenu.get_children():
             self._pointer_submenu.remove(child)
         by_id = {st.id: st for st in pointer_style.ALL_STYLES}
-        group = None
         current = self.overlay.style_id if self.overlay else "lavender"
-        for style_id in self._prefs.get("pinnedStyles") or []:
-            style = by_id.get(style_id)
-            if style is None:
-                continue
-            item = Gtk.RadioMenuItem.new_with_label_from_widget(group, style.name)
-            group = item
-            item.set_active(style_id == current)
-            item.connect("activate", lambda _i, sid=style_id: self._after_menu(lambda: self._on_toolbar_style(sid)))
-            self._pointer_submenu.append(item)
+        pinned = [i for i in (self._prefs.get("pinnedStyles") or []) if i in by_id]
+        others = [st.id for st in pointer_style.ALL_STYLES if st.id not in pinned]
+
+        def add_group(container, ids):
+            group = None
+            for style_id in ids:
+                style = by_id[style_id]
+                item = Gtk.RadioMenuItem.new_with_label_from_widget(group, style.name)
+                group = item
+                item.set_active(style_id == current)
+                item.connect("activate", lambda _i, sid=style_id: self._after_menu(
+                    lambda: self._on_toolbar_style(sid)))
+                container.append(item)
+
+        add_group(self._pointer_submenu, pinned)
+        if others:
+            self._pointer_submenu.append(Gtk.SeparatorMenuItem())
+        for n in range(0, len(others), 12):
+            chunk = others[n:n + 12]
+            label = f"{by_id[chunk[0]].name} … {by_id[chunk[-1]].name}"
+            sub_item = Gtk.MenuItem(label=label)
+            sub_menu = Gtk.Menu()
+            sub_item.set_submenu(sub_menu)
+            add_group(sub_menu, chunk)
+            self._pointer_submenu.append(sub_item)
         self._pointer_submenu.show_all()
 
     def _on_tray_popup(self, icon, button, time) -> None:
