@@ -5,3 +5,6 @@ dist/
 *.dmg
 *.zip
 assets/unused/
+linux/vendor/
+__pycache__/
+*.pyc

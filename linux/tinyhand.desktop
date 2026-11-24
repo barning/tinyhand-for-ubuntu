@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=TinyHand
+Comment=A tiny hand that points at things on your screen
+Exec=python3 -m tinyhand_linux %u
+Path=/home/niklas/Code/tinyhand/linux
+Icon=/home/niklas/Code/tinyhand/assets/AppIcon.icns
+Terminal=false
+Categories=Utility;
+MimeType=x-scheme-handler/tinyhand;

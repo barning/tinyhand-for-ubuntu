@@ -1,0 +1,325 @@
+"""The pointer overlay: a full-screen transparent window that draws the hand and ink.
+
+Port of OverlayController.swift (core behaviour). While the pointer is on, the
+overlay takes every mouse button press and drag, so nothing underneath gets
+clicked. Holding the interact key (Alt) makes the overlay click-through by
+emptying its X11 input shape, so clicks reach the app beneath, as on macOS.
+Double-tapping Shift latches click-through on (and off again).
+
+Not ported in v1: Space following, menu-bar detection, screen-lock detection,
+and idle/timer pacing. The overlay redraws on a fixed GLib timer while it is on.
+"""
+from __future__ import annotations
+
+from typing import Callable, Optional
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+gi.require_version("GdkX11", "3.0")
+from gi.repository import Gdk, GdkX11, GLib, Gtk  # noqa: E402
+from Xlib import X  # noqa: E402
+from Xlib import display as xlib_display  # noqa: E402
+from Xlib.ext import shape  # noqa: E402
+
+from . import hotkeys, paths, pointer_style, prefs  # noqa: E402
+from .arm_view import ArmView  # noqa: E402
+from .log import log  # noqa: E402
+from .tapsound import TapSound  # noqa: E402
+
+TICK_MS = 16
+ESCAPE_KEYSYM = "Escape"
+HINT_MARKER = paths.DATA_DIR / "hint_shown"
+
+
+class Overlay:
+    SHIFT_TAP_MAX = 0.3      # seconds a Shift press may last to count as a tap
+    SHIFT_DOUBLE_MAX = 0.35  # seconds between two taps to count as a double tap
+
+    def __init__(self) -> None:
+        self._prefs = prefs.Prefs()
+        self._window: Optional[Gtk.Window] = None
+        self._arm: Optional[ArmView] = None
+        self._toolbar = None
+        self._timer_id: Optional[int] = None
+        self._escape_id: Optional[int] = None
+        self._down_button = False
+        self._click_through = False
+        self._latched = False  # double-Shift latch: every click reaches the app
+        self._shift_down = False
+        self._shift_down_at = 0.0
+        self._last_shift_tap = 0.0
+        self._xdisplay = None
+        self._style_id = self._prefs.get("selectedStyle") or "lavender"
+        self.is_active = False
+        self.on_active_changed: Optional[Callable[[], None]] = None
+        self.on_needs_permission: Optional[Callable[[], None]] = None
+
+    # ----- public API used by app.py --------------------------------------
+
+    @property
+    def style_id(self) -> str:
+        return self._style_id
+
+    def x11_ok(self) -> bool:
+        display = Gdk.Display.get_default()
+        return display is not None and type(display).__name__ == "X11Display"
+
+    def attach_toolbar(self, toolbar) -> None:
+        self._toolbar = toolbar
+
+    def toggle(self) -> None:
+        if self.is_active:
+            self.deactivate()
+        else:
+            self.activate()
+
+    def activate(self) -> bool:
+        if self.is_active:
+            return True
+        if not self.x11_ok():
+            log("activate skipped: not an X11 session")
+            if self.on_needs_permission:
+                self.on_needs_permission()
+            return False
+        self._ensure_window()
+        self.is_active = True
+        self._window.move(0, 0)
+        self._window.show_all()
+        self._apply_cursor(hidden=True)
+        self._arm.set_show_shadow(self._prefs.show_shadow)
+        self._arm.pointer_hidden = False
+        self._arm.held = False
+        self._timer_id = GLib.timeout_add(TICK_MS, self._tick)
+        self._escape_id = hotkeys.shared().register(ESCAPE_KEYSYM, 0, self.deactivate)
+        TapSound.set_enabled(self._sound_on())
+        self._show_toolbar()
+        self._notify()
+        return True
+
+    def deactivate(self) -> None:
+        if not self.is_active:
+            return
+        self.is_active = False
+        if self._timer_id is not None:
+            GLib.source_remove(self._timer_id)
+            self._timer_id = None
+        if self._escape_id is not None:
+            hotkeys.shared().unregister(self._escape_id)
+            self._escape_id = None
+        self._latched = False
+        self._set_click_through(False)
+        self._apply_cursor(hidden=False)
+        self._down_button = False
+        if self._arm is not None:
+            self._arm.held = False
+            self._arm.ink.clear()
+            self._arm.queue_draw()
+        if self._window is not None:
+            self._window.hide()
+        if self._toolbar is not None:
+            self._toolbar.hide()
+        self._notify()
+
+    def clear_ink(self) -> None:
+        if self._arm is not None:
+            self._arm.ink.clear()
+            self._arm.queue_draw()
+
+    def pick(self, style_id: str) -> None:
+        style = pointer_style.style_by_id(style_id)
+        if style is None:
+            log(f"unknown pointer style {style_id!r}")
+            return
+        self._style_id = style_id
+        self._prefs.set("selectedStyle", style_id)
+        if self._arm is not None:
+            self._arm.style = style
+            self._arm.queue_draw()
+        if self._toolbar is not None:
+            self._toolbar.select(style_id)
+
+    # ----- window ----------------------------------------------------------
+
+    def _ensure_window(self) -> None:
+        if self._window is not None:
+            return
+        root = Gdk.get_default_root_window()
+        width, height = root.get_width(), root.get_height()
+
+        window = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
+        window.set_title("TinyHand overlay")
+        window.set_decorated(False)
+        window.set_skip_taskbar_hint(True)
+        window.set_skip_pager_hint(True)
+        window.set_accept_focus(False)
+        window.set_type_hint(Gdk.WindowTypeHint.DOCK)
+        window.set_keep_above(True)
+        window.set_app_paintable(True)
+        window.set_default_size(width, height)
+        screen = window.get_screen()
+        visual = screen.get_rgba_visual()
+        if visual is not None:
+            window.set_visual(visual)
+
+        arm = ArmView()
+        arm.set_size_request(width, height)
+        window.add(arm)
+        window.add_events(
+            Gdk.EventMask.BUTTON_PRESS_MASK
+            | Gdk.EventMask.BUTTON_RELEASE_MASK
+            | Gdk.EventMask.POINTER_MOTION_MASK
+        )
+        window.connect("button-press-event", self._on_button_press)
+        window.connect("button-release-event", self._on_button_release)
+        window.connect("motion-notify-event", self._on_motion)
+        window.connect("delete-event", lambda *_: True)
+
+        style = pointer_style.style_by_id(self._style_id)
+        if style is not None:
+            arm.style = style
+
+        self._window = window
+        self._arm = arm
+
+    def _apply_cursor(self, hidden: bool) -> None:
+        if self._window is None or self._window.get_window() is None:
+            return
+        display = self._window.get_display()
+        cursor = None
+        if hidden:
+            cursor = Gdk.Cursor.new_for_display(display, Gdk.CursorType.BLANK_CURSOR)
+        self._window.get_window().set_cursor(cursor)
+
+    def _show_toolbar(self) -> None:
+        if self._toolbar is None:
+            return
+        self._toolbar.select(self._style_id)
+        self._toolbar.set_sound(self._sound_on())
+        self._toolbar.set_needs_permission(False)
+        self._toolbar.place()
+        self._toolbar.show()
+        if not HINT_MARKER.exists():
+            HINT_MARKER.parent.mkdir(parents=True, exist_ok=True)
+            HINT_MARKER.write_text("1")
+            pairs = [("Click", "to tap"), ("Drag", "to draw")]
+            if self._prefs.interact_key != "off":
+                pairs.append(("Hold Alt", "to click for real"))
+            pairs.append(("Esc", "to exit"))
+            self._toolbar.show_hint(pairs)
+            GLib.timeout_add_seconds(10, self._hide_hint_once)
+
+    def _hide_hint_once(self) -> bool:
+        if self._toolbar is not None:
+            self._toolbar.hide_hint()
+        return False
+
+    def _sound_on(self) -> bool:
+        return bool(self._prefs.laser_sound if self._style_id == "laser" else self._prefs.hand_sound)
+
+    def _notify(self) -> None:
+        if self.on_active_changed:
+            self.on_active_changed()
+
+    # ----- input -----------------------------------------------------------
+
+    def _on_button_press(self, _widget, event) -> bool:
+        if self._click_through:
+            return False
+        x, y = event.x_root, event.y_root
+        self._arm.set_position(x, y)
+        self._arm.press()
+        self._arm.held = True
+        self._down_button = True
+        if event.button == 1:
+            self._arm.ink.begin(x, y)
+        TapSound.play(self._style_id)
+        if self._toolbar is not None:
+            self._toolbar.hide_hint()
+        self._arm.queue_draw()
+        return True
+
+    def _on_button_release(self, _widget, event) -> bool:
+        if self._click_through:
+            return False
+        self._arm.held = False
+        self._down_button = False
+        self._arm.ink.end()
+        self._arm.queue_draw()
+        return True
+
+    def _on_motion(self, _widget, event) -> bool:
+        x, y = event.x_root, event.y_root
+        self._arm.aim(x, y)
+        if self._down_button and (event.state & Gdk.ModifierType.BUTTON1_MASK):
+            self._arm.ink.extend(x, y)
+        self._arm.queue_draw()
+        return True
+
+    def _tick(self) -> bool:
+        if not self.is_active:
+            return False
+        root = Gdk.get_default_root_window()
+        seat = Gdk.Display.get_default().get_default_seat()
+        pointer = seat.get_pointer()
+        _win, x, y, mask = root.get_device_position(pointer)
+        self._arm.aim(x, y)
+        self._arm.queue_draw()
+
+        self._update_shift_latch(mask)
+        held = self._interact_held(mask) or self._latched
+        if held != self._click_through:
+            self._set_click_through(held)
+        return True
+
+    def _update_shift_latch(self, mask) -> None:
+        """Double-tap Shift toggles the click-through latch (prefs doubleShiftClickThrough)."""
+        import time
+
+        shift = bool(mask & Gdk.ModifierType.SHIFT_MASK)
+        now = time.monotonic()
+        if shift and not self._shift_down:
+            self._shift_down = True
+            self._shift_down_at = now
+        elif not shift and self._shift_down:
+            self._shift_down = False
+            if now - self._shift_down_at <= self.SHIFT_TAP_MAX:
+                if now - self._last_shift_tap <= self.SHIFT_DOUBLE_MAX:
+                    if self._prefs.get("doubleShiftClickThrough"):
+                        self._latched = not self._latched
+                    self._last_shift_tap = 0.0
+                else:
+                    self._last_shift_tap = now
+            else:
+                self._last_shift_tap = 0.0
+
+    def _interact_held(self, mask) -> bool:
+        """True while the chosen interact modifier is down (Alt by default)."""
+        key = self._prefs.interact_key
+        modifiers = {
+            "control": Gdk.ModifierType.CONTROL_MASK,
+            "command": Gdk.ModifierType.MOD4_MASK,  # Super
+        }
+        if key == "off":
+            return False
+        return bool(mask & modifiers.get(key, Gdk.ModifierType.MOD1_MASK))  # alt and legacy values
+
+    def _set_click_through(self, on: bool) -> None:
+        """Empty the window's X11 input shape so clicks pass through, or restore it."""
+        self._click_through = on
+        if self._window is None or self._window.get_window() is None:
+            return
+        xid = GdkX11.X11Window.get_xid(self._window.get_window())
+        if self._xdisplay is None:
+            self._xdisplay = xlib_display.Display()
+        win = self._xdisplay.create_resource_object("window", xid)
+        if on:
+            # An empty input rectangle set: every event falls through the window.
+            win.shape_rectangles(shape.SO.Set, shape.SK.Input, X.Unsorted, 0, 0, [])
+        else:
+            # A null mask resets the input shape to the whole window.
+            win.shape_mask(shape.SO.Set, shape.SK.Input, 0, 0, X.NONE)
+        self._xdisplay.flush()
+        if self._arm is not None:
+            self._arm.held = False
