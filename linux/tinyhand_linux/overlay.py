@@ -31,6 +31,10 @@ from .tapsound import TapSound  # noqa: E402
 TICK_MS = 16
 ESCAPE_KEYSYM = "Escape"
 HINT_MARKER = paths.DATA_DIR / "hint_shown"
+# Open-menu tracking (clicks pass through while a menu is open over the top panel).
+# Off by default: the check briefly reported a false menu at startup, which would
+# stop the overlay drawing. Turn on once it has been verified on a real desktop.
+MENU_TRACKING = False
 
 
 class Overlay:
@@ -53,6 +57,8 @@ class Overlay:
         self._xdisplay = None
         self._lock_sub = None
         self._top_inset = 0  # height of the top panel; clicks there reach the panel
+        self._menu_open = False  # an override-redirect popup (a menu) sits over the top panel
+        self._tick_count = 0
         self._style_id = self._prefs.get("selectedStyle") or "lavender"
         self.is_active = False
         self.on_active_changed: Optional[Callable[[], None]] = None
@@ -275,7 +281,10 @@ class Overlay:
         self._update_shift_latch(mask)
         # Over the top panel the overlay lets clicks through, as macOS does for the menu bar.
         over_panel = self._top_inset > 0 and y < self._top_inset
-        held = self._interact_held(mask) or self._latched or over_panel
+        self._tick_count += 1
+        if MENU_TRACKING and self._tick_count % 16 == 0:  # about four times a second
+            self._menu_open = self._top_menu_open()
+        held = self._interact_held(mask) or self._latched or over_panel or self._menu_open
         if held != self._click_through:
             self._set_click_through(held)
         return True
@@ -300,6 +309,35 @@ class Overlay:
                     self._last_shift_tap = now
             else:
                 self._last_shift_tap = 0.0
+
+    def _top_menu_open(self) -> bool:
+        """True if a menu popup (an override-redirect window) is open over the top panel.
+
+        This is how macOS passes clicks through while a menu-bar menu is open.
+        """
+        if self._top_inset <= 0:
+            return False
+        try:
+            if self._xdisplay is None:
+                self._xdisplay = xlib_display.Display()
+            root = self._xdisplay.screen().root
+            root_geom = root.get_geometry()
+            root_w, root_h = root_geom.width, root_geom.height
+            own = int(GdkX11.X11Window.get_xid(self._window.get_window())) if self._window else 0
+            for child in root.query_tree().children:
+                if child.id == own:
+                    continue
+                attrs = child.get_attributes()
+                if not attrs.override_redirect or attrs.map_state != X.IsViewable:
+                    continue
+                geom = child.get_geometry()
+                if geom.width >= root_w * 0.9 and geom.height >= root_h * 0.9:
+                    continue  # full-screen compositor windows (e.g. mutter's guard window), not menus
+                if geom.width > 0 and geom.height > 0 and geom.y < self._top_inset + 4 and geom.y + geom.height > 0:
+                    return True
+        except Exception as error:  # the X connection can hiccup; keep the overlay running
+            log(f"menu check failed: {error}")
+        return False
 
     def _measure_top_inset(self) -> int:
         """Height of a panel docked at the top of the primary monitor (0 if none)."""
