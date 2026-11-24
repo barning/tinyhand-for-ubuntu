@@ -844,7 +844,7 @@ class SettingsWindow(Gtk.Window):
 
     def _cancel_shortcut_recording(self):
         """Cancel shortcut recording mode."""
-        if self._shortcut_recording_button is not None:
+        if self._shortcut_recording_button is not None and self._shortcut_original_label is not None:
             self._shortcut_recording_button.set_label(self._shortcut_original_label)
         self._shortcut_recording_key = None
         self._shortcut_recording_button = None
@@ -948,11 +948,12 @@ class SettingsWindow(Gtk.Window):
             'display': display
         })
         
-        # Update button label
+        # Show the new shortcut and leave recording mode. (Not via cancel: cancel would
+        # restore the old label.)
         self._shortcut_recording_button.set_label(display)
-        
-        # Exit recording mode
-        self._cancel_shortcut_recording()
+        self._shortcut_recording_key = None
+        self._shortcut_recording_button = None
+        self._shortcut_original_label = None
 
     def _create_sound_tile(self, title, icon, selected):
         """Create a sound tile."""

@@ -67,10 +67,10 @@ xdg-open tinyhand://toggle
 ## Status
 
 Working: pointer overlay with hand tracking, drawing with fade, tap sound, the
-toolbar (pinned pointers, sound, exit), hold-Alt and double-Shift click-through,
-click-through over the top bar and open menus, Space following (all workspaces),
-turn-off on screen lock, settings (six pages), launch at login, make-your-own hands,
-and `tinyhand://` links.
+toolbar (pinned pointers, sound, exit, can be hidden), hold-Alt and double-Shift
+click-through, click-through over the top bar and open menus, Space following (all
+workspaces), turn-off on screen lock, settings (six pages), recordable shortcuts,
+launch at login, make-your-own hands, and `tinyhand://` links.
 
 Checked on this desktop: hand tracking, drawing, fade, tap sound, toolbar, the
 click-through rules, screen lock, a real GTK menu, and a window made fullscreen by
@@ -84,8 +84,9 @@ Not yet confirmed:
 Known limits:
 - X11 only. Under Wayland (XWayland) the desktop's full-screen guard window
   intercepts simulated clicks, which is why drag tests fail there.
-- Shortcuts are fixed at Ctrl+Alt+H and Ctrl+Alt+X; the Settings buttons show them
-  but can't record new ones yet.
+- Shortcuts can be changed in Settings → General: click a shortcut button, then
+  press the new keys (Escape cancels). Tested: a recorded Ctrl+Alt+J turns the
+  pointer on.
 - Double-tap Shift latches click-through; the Settings row for it is on.
 - The macOS "Keep hand while interacting" option is not ported.
 - No automatic updates. Update with `git pull` in the repository.
