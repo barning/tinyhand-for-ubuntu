@@ -39,7 +39,7 @@ INK_CHOICES = {
 }
 # Open-menu tracking: clicks pass through while a menu is open over the top panel.
 # Verified with a real GTK menu (on while open, off after) and with no menu open.
-MENU_TRACKING = True
+MENU_TRACKING = False  # off while the tray-popup interaction is being checked
 
 
 class Overlay:
