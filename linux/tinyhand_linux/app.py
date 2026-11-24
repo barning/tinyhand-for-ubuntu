@@ -127,7 +127,7 @@ class TinyHandApp(Gtk.Application):
     def _update_tray_icon(self) -> None:
         on = bool(self.overlay and self.overlay.is_active)
         # White tray icons for the dark top bar (the PNGs in assets/ are black silhouettes).
-        name = "tray-on.svg" if on else "tray-off.svg"
+        name = "tray-on.png" if on else "tray-off.png"
         self.tray.set_from_file(str(paths.ASSETS_DIR / "icon" / name))
         self.tray.set_tooltip_text(
             "TinyHand is on — click to turn off, right-click for the menu"
