@@ -112,6 +112,7 @@ class Overlay:
         self._escape_id = hotkeys.shared().register(ESCAPE_KEYSYM, 0, self.deactivate)
         TapSound.set_enabled(self._sound_on())
         self._show_toolbar()
+        self._refresh_input_shape()
         self._notify()
         return True
 
@@ -428,3 +429,27 @@ class Overlay:
         self._xdisplay.flush()
         if self._arm is not None:
             self._arm.held = False
+
+    def _refresh_input_shape(self) -> None:
+        """Let clicks on the toolbar reach it: the overlay's input excludes the toolbar's rectangle."""
+        if self._click_through or self._window is None or self._window.get_window() is None:
+            return
+        if self._toolbar is None or not self._toolbar.get_visible():
+            return
+        tx, ty = self._toolbar.get_position()
+        tw, th = self._toolbar.get_size()
+        width, height = self._window.get_size()
+        # Four rectangles that cover the screen except for the toolbar.
+        rects = [
+            (0, 0, width, max(0, ty)),
+            (0, ty, max(0, tx), th),
+            (tx + tw, ty, max(0, width - tx - tw), th),
+            (0, ty + th, width, max(0, height - ty - th)),
+        ]
+        rectangles = [{"x": x, "y": y, "width": w, "height": h} for x, y, w, h in rects if w > 0 and h > 0]
+        xid = GdkX11.X11Window.get_xid(self._window.get_window())
+        if self._xdisplay is None:
+            self._xdisplay = xlib_display.Display()
+        win = self._xdisplay.create_resource_object("window", xid)
+        win.shape_rectangles(shape.SO.Set, shape.SK.Input, X.Unsorted, 0, 0, rectangles)
+        self._xdisplay.flush()
