@@ -100,8 +100,11 @@ class Overlay:
         self._apply_appearance()
         self.is_active = True
         self._window.move(0, 0)
-        self._window.stick()  # on every workspace, like macOS Space following
-        self._window.show_all()
+        # Stays mapped between uses (see deactivate); shown and stuck to all workspaces once.
+        if not self._window.get_visible():
+            self._window.stick()  # on every workspace, like macOS Space following
+            self._window.show_all()
+        self._set_click_through(False)
         self._top_inset = self._measure_top_inset()
         self._watch_screen_lock()
         self._apply_cursor(hidden=True)
@@ -127,15 +130,15 @@ class Overlay:
             hotkeys.shared().unregister(self._escape_id)
             self._escape_id = None
         self._latched = False
-        self._set_click_through(False)
         self._apply_cursor(hidden=False)
         self._down_button = False
         if self._arm is not None:
             self._arm.held = False
+            self._arm.pointer_hidden = True  # draw nothing while off
             self._arm.ink.clear()
             self._arm.queue_draw()
-        if self._window is not None:
-            self._window.hide()
+        # Stay mapped but let every click through, so the desktop works while the pointer is off.
+        self._set_click_through(True)
         if self._toolbar is not None:
             self._toolbar.hide()
         self._notify()
