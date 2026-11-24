@@ -110,8 +110,8 @@ class SettingsWindow(Gtk.Window):
         self.set_default_size(780, 560)
         self.set_resizable(True)
         self.set_skip_taskbar_hint(True)
-        self.connect('delete-event', lambda w, e: (self.on_close() if self.on_close else None, True)[1])
-        self.connect('destroy', lambda w: self.on_close() if self.on_close else None)
+        # Closing hides the window so it can be shown again from the menu.
+        self.connect('delete-event', lambda w, e: (w.hide(), True)[1])
         self.connect('key-press-event', self._on_key_press)
         self.add_events(Gdk.EventMask.KEY_PRESS_MASK)
 
@@ -132,6 +132,8 @@ class SettingsWindow(Gtk.Window):
         Args:
             section: Optional section name to show
         """
+        # show_all() is needed: a window that was only presented shows as a blank frame.
+        self.show_all()
         if section:
             self._current_section = section
             self._content_stack.set_visible_child_name(section)

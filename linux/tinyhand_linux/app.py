@@ -126,8 +126,9 @@ class TinyHandApp(Gtk.Application):
 
     def _update_tray_icon(self) -> None:
         on = bool(self.overlay and self.overlay.is_active)
-        name = "menubar_on.png" if on else "menubar_off.png"
-        self.tray.set_from_file(str(paths.ASSETS_DIR / name))
+        # White tray icons for the dark top bar (the PNGs in assets/ are black silhouettes).
+        name = "tray-on.svg" if on else "tray-off.svg"
+        self.tray.set_from_file(str(paths.ASSETS_DIR / "icon" / name))
         self.tray.set_tooltip_text(
             "TinyHand is on — click to turn off, right-click for the menu"
             if on else
@@ -230,9 +231,8 @@ class TinyHandApp(Gtk.Application):
 
     def show_settings(self) -> None:
         if self.settings is None:
-            self.settings = SettingsWindow(self._prefs, on_close=lambda: setattr(self, "settings", None))
+            self.settings = SettingsWindow(self._prefs)
         self.settings.show()
-        self.settings.present()
 
     def _show_welcome(self) -> None:
         if self.welcome is None:
