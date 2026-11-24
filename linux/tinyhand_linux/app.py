@@ -114,6 +114,14 @@ class TinyHandApp(Gtk.Application):
         self.toggle_item.connect("activate", lambda _i: self.toggle_pointer())
         menu.append(self.toggle_item)
 
+        # Pointer choice lives in the menu too, so it works even when the toolbar is covered.
+        self._pointer_menu_item = Gtk.MenuItem(label="Pointer")
+        self._pointer_submenu = Gtk.Menu()
+        self._pointer_menu_item.set_submenu(self._pointer_submenu)
+        menu.append(self._pointer_menu_item)
+        self._rebuild_pointer_menu()
+        self._prefs.on_change("pinnedStyles", lambda _v: self._rebuild_pointer_menu())
+
         clear_item = Gtk.MenuItem(label="Clear drawing")
         clear_item.connect("activate", lambda _i: self.clear_ink())
         menu.append(clear_item)
@@ -135,6 +143,26 @@ class TinyHandApp(Gtk.Application):
         self._menu = menu
         if getattr(self, "_indicator", None) is not None:
             self._indicator.set_menu(menu)
+
+    def _rebuild_pointer_menu(self) -> None:
+        """Radio items for the pinned pointers; the current one is ticked."""
+        from . import pointer_style
+
+        for child in self._pointer_submenu.get_children():
+            self._pointer_submenu.remove(child)
+        by_id = {st.id: st for st in pointer_style.ALL_STYLES}
+        group = None
+        current = self.overlay.style_id if self.overlay else "lavender"
+        for style_id in self._prefs.get("pinnedStyles") or []:
+            style = by_id.get(style_id)
+            if style is None:
+                continue
+            item = Gtk.RadioMenuItem.new_with_label_from_widget(group, style.name)
+            group = item
+            item.set_active(style_id == current)
+            item.connect("activate", lambda _i, sid=style_id: self._on_toolbar_style(sid))
+            self._pointer_submenu.append(item)
+        self._pointer_submenu.show_all()
 
     def _on_tray_popup(self, icon, button, time) -> None:
         self._menu.popup(None, None, Gtk.StatusIcon.position_menu, icon, button, time)
@@ -164,6 +192,7 @@ class TinyHandApp(Gtk.Application):
         self._set_sound_on(item.get_active())
 
     def _on_active_changed(self) -> None:
+        self._rebuild_pointer_menu()
         active = bool(self.overlay and self.overlay.is_active)
         if self.toggle_item is not None:
             self.toggle_item.set_label("Turn pointer off" if active else "Turn pointer on")
