@@ -403,7 +403,7 @@ class SettingsWindow(Gtk.Window):
         if len(pinned) >= 5:
             desc.set_text('The toolbar is full. Remove a pointer to add another.')
         else:
-            desc.set_text('Use the arrows to reorder pointers.')
+            desc.set_text('Drag a pointer onto another to reorder, or use the arrows.')
         desc.set_halign(Gtk.Align.START)
         set_font(desc, 11, 'normal')
         desc.get_style_context().add_class('th-detail')
@@ -1029,6 +1029,15 @@ class SettingsWindow(Gtk.Window):
             style = by_id.get(style_id)
             name = style.name if style is not None else style_id
             item = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+            # The whole item is a drag handle and a drop target; EventBox gives Box drag support.
+            handle = Gtk.EventBox()
+            handle.add(item)
+            handle.set_tooltip_text(f'Drag to move {name}')
+            targets = [Gtk.TargetEntry.new('tinyhand/pinned-index', Gtk.TargetFlags.SAME_APP, 0)]
+            handle.drag_source_set(Gdk.ModifierType.BUTTON1_MASK, targets, Gdk.DragAction.MOVE)
+            handle.connect('drag-data-get', self._on_pinned_drag_get, i)
+            handle.drag_dest_set(Gtk.DestDefaults.ALL, targets, Gdk.DragAction.MOVE)
+            handle.connect('drag-data-received', self._on_pinned_drag_received, i)
             label = Gtk.Label(label=name)
             label.set_tooltip_text(name)
             item.pack_start(label, False, False, 0)
@@ -1044,7 +1053,25 @@ class SettingsWindow(Gtk.Window):
             remove.set_tooltip_text('Remove from the toolbar')
             remove.connect('clicked', lambda _b, idx=i: self._remove_pinned(idx))
             item.pack_start(remove, False, False, 0)
-            hbox.pack_start(item, False, False, 0)
+            hbox.pack_start(handle, False, False, 0)
+
+    def _on_pinned_drag_get(self, widget, context, data, info, time, index):
+        """Hand the dragged pointer's position to the drop target."""
+        data.set(data.get_target(), 8, str(index).encode())
+
+    def _on_pinned_drag_received(self, widget, context, x, y, data, info, time, target_index):
+        """Move the dragged pointer to the position of the item it was dropped on."""
+        try:
+            source = int(bytes(data.get_data()).decode())
+        except (TypeError, ValueError):
+            return
+        pinned = list(self.prefs.get('pinnedStyles') or [])
+        if source == target_index or not (0 <= source < len(pinned)):
+            return
+        moved = pinned.pop(source)
+        pinned.insert(target_index, moved)
+        self.prefs.set('pinnedStyles', pinned)
+        self._refresh_pointers_page()
 
     def _move_pinned(self, index, step):
         """Swap a pinned pointer with its neighbour and rebuild the Pointers page."""
