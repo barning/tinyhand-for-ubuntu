@@ -18,7 +18,7 @@ _DEFAULTS: dict[str, Any] = {
     "doubleShiftClickThrough": True,
     "interactKey": "alt",
     "inkChoice": "match",
-    "showToolbar": True,
+    "showToolbar": False,
     "showInkButton": True,
     "pinnedStyles": ["lavender", "glove", "coral", "plush", "robot", "laser"],
     "shortcut.toggle": {"keyCode": 4, "modifiers": 262144, "display": "Ctrl+Alt+H"},
@@ -262,7 +262,7 @@ if __name__ == "__main__":
     assert p.laser_sound is False
     assert p.interact_key == "alt"
     assert p.ink_choice == "match"
-    assert p.show_toolbar is True
+    assert p.show_toolbar is False
     assert p.pinned_styles == ["lavender", "glove", "coral", "plush", "robot", "laser"]
     
     # Test set/get

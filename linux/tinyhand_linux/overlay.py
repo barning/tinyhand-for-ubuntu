@@ -312,12 +312,11 @@ class Overlay:
         self._arm.queue_draw()
 
         self._update_shift_latch(mask)
-        # Over the top panel the overlay lets clicks through, as macOS does for the menu bar.
-        over_panel = self._top_inset > 0 and y < self._top_inset
+        # Clicks over the top bar are not passed through (that rule made the hand stick there).
         self._tick_count += 1
         if MENU_TRACKING and self._tick_count % 16 == 0:  # about four times a second
             self._menu_open = self._top_menu_open()
-        held = self._interact_held(mask) or self._latched or over_panel or self._menu_open
+        held = self._interact_held(mask) or self._latched or self._menu_open
         if held != self._click_through:
             self._set_click_through(held)
         return True
