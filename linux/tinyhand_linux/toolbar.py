@@ -387,19 +387,23 @@ class Toolbar(Gtk.Window):
 
         if screen:
             monitor = screen.get_primary_monitor()
-            geom = screen.get_monitor_geometry(monitor)
-            # get_default_size() is -1 unless set; use the natural size of the content.
+            # The work area leaves out docks and panels, so the bar isn't hidden under them.
+            area = screen.get_monitor_workarea(monitor)
             _, natural = self.get_preferred_size()
             win_w, win_h = natural.width, natural.height
-            x = geom.x + geom.width // 2 - win_w // 2
-            y = geom.y + geom.height - win_h - 14
+            x = area.x + area.width // 2 - win_w // 2
+            y = area.y + area.height - win_h - 14
             self.move(x, y)
 
     def show(self):
         """Show the toolbar."""
-        self.place()
         self.show_all()
+        self.place()
         self.present()
+        # Keep it above the full-screen overlay, which is shown at the same time.
+        self.set_keep_above(True)
+        if self.get_window() is not None:
+            self.get_window().raise_()
 
     def hide(self):
         """Hide the toolbar."""
