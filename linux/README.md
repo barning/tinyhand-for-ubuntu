@@ -64,15 +64,36 @@ xdg-open tinyhand://toggle
 | `~/.local/share/TinyHand/state.json` | Live state, removed on quit (same keys as the macOS app) |
 | `~/.local/share/TinyHand/tinyhand.log` | Log |
 
-## Known limits (v1)
+## Status
 
-- X11 only.
-- Shortcuts are fixed at Ctrl+Alt+H (toggle) and Ctrl+Alt+X (clear). The Settings
-  shortcut buttons show them but can't record new ones yet.
-- "Make your own hand" and drag-to-reorder for pointers are not available yet.
-- No menu-bar detection, Space following, screen-lock detection.
+Working: pointer overlay with hand tracking, drawing with fade, tap sound, the
+toolbar (pinned pointers, sound, exit), hold-Alt and double-Shift click-through,
+click-through over the top bar and open menus, Space following (all workspaces),
+turn-off on screen lock, settings (six pages), launch at login, make-your-own hands,
+and `tinyhand://` links.
+
+Checked on this desktop: hand tracking, drawing, fade, tap sound, toolbar, the
+click-through rules, screen lock, a real GTK menu, and a window made fullscreen by
+the window manager (the hand still draws over it).
+
+Not yet confirmed:
+- Drag-to-reorder of pinned pointers with a real mouse (arrow buttons also work).
+- Make-your-own file picker, clicked through in the GUI.
+- Multi-monitor layouts.
+
+Known limits:
+- X11 only. Under Wayland (XWayland) the desktop's full-screen guard window
+  intercepts simulated clicks, which is why drag tests fail there.
+- Shortcuts are fixed at Ctrl+Alt+H and Ctrl+Alt+X; the Settings buttons show them
+  but can't record new ones yet.
+- Double-tap Shift latches click-through; the Settings row for it is on.
+- The macOS "Keep hand while interacting" option is not ported.
 - No automatic updates. Update with `git pull` in the repository.
-- Overlay stacking over full-screen windows depends on the window manager.
+
+Recovery note: some files were rebuilt after an accidental deletion. `handmaker.py`
+was rewritten from `Sources/TinyHand/HandMaker.swift`. The other rebuilt files were
+recovered from build records and re-checked by the tests above. If behaviour differs
+from the macOS app, the Swift source is the reference.
 
 ## Vendored python-xlib
 

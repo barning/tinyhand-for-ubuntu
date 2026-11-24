@@ -6,6 +6,7 @@ Port of Sources/TinyHand/Ink.swift to Python with cairo.
 
 import cairo
 import math
+import time
 from typing import List, Tuple, Optional
 
 
@@ -38,7 +39,8 @@ class Ink:
 
     def __init__(self):
         """Initialize Ink with default settings."""
-        self._strokes: List[List[Tuple[float, float]]] = []
+        # Completed strokes as (points, finished_at); finished_at is a time.monotonic() value.
+        self._strokes: List[Tuple[List[Tuple[float, float]], float]] = []
         self._current_stroke: Optional[List[Tuple[float, float]]] = None
         self._arrow_on_last = False
         self._color = self.PURPLE
@@ -124,7 +126,7 @@ class Ink:
             pass
 
         # Store the completed stroke
-        self._strokes.append(self._current_stroke.copy())
+        self._strokes.append((self._current_stroke.copy(), time.monotonic()))
         self._current_stroke = None
         self._arrow_on_last = False
 
@@ -135,42 +137,37 @@ class Ink:
         self._arrow_on_last = False
 
     def draw(self, cr: cairo.Context, rgb: Optional[Tuple[float, float, float]] = None):
-        """Draw all strokes to the cairo context.
+        """Draw the strokes; finished ones fade out after fade_seconds (0 keeps them).
 
         Args:
             cr: cairo context to draw to
-            rgb: optional RGB color tuple (0..1) to override default color
+            rgb: optional RGB colour tuple (0..1) to override the ink colour
         """
         color = rgb if rgb is not None else self._color
-        width = self._line_width
+        now = time.monotonic()
+        fade = self._fade_seconds
 
-        # Save context state
+        # Drop strokes that have faded out completely.
+        if fade > 0:
+            self._strokes = [(pts, t) for pts, t in self._strokes if now - t < fade]
+
         cr.save()
-
-        # Set stroke style
-        cr.set_source_rgb(color[0], color[1], color[2])
-        cr.set_line_width(width)
+        cr.set_line_width(self._line_width)
         cr.set_line_cap(cairo.LINE_CAP_ROUND)
         cr.set_line_join(cairo.LINE_JOIN_ROUND)
 
-        # Shadow effect (approximated with cairo)
-        # In Swift: shadowColor=black, shadowOpacity=0.18, shadowRadius=1.5, shadowOffset=(1, -1.5)
-        # We'll draw a shadow version first
-        cr.save()
-        cr.set_source_rgba(0, 0, 0, 0.18)
-        cr.set_line_width(width + 1.5 * 2)  # approximate shadow spread
-        for stroke in self._strokes:
-            self._draw_stroke_path(cr, stroke, False)
-            cr.stroke()
-        cr.restore()
-
-        # Draw the actual strokes
-        for stroke in self._strokes:
+        for stroke, finished_at in self._strokes:
+            alpha = 1.0
+            if fade > 0:
+                age = now - finished_at
+                # Fade over the last second before the stroke is removed.
+                alpha = min(1.0, max(0.0, (fade - age) / min(1.0, fade)))
+            cr.set_source_rgba(color[0], color[1], color[2], alpha)
             self._draw_stroke_path(cr, stroke, False)
             cr.stroke()
 
-        # Draw current stroke if in progress
         if self._current_stroke is not None and len(self._current_stroke) > 0:
+            cr.set_source_rgba(color[0], color[1], color[2], 1.0)
             self._draw_stroke_path(cr, self._current_stroke, self._arrow_on_last)
             cr.stroke()
 

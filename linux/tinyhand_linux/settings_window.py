@@ -333,6 +333,7 @@ class SettingsWindow(Gtk.Window):
         card = self._create_card(parent, 'Startup')
         
         login_sw = self._create_toggle('launchAtLogin', False)
+        login_sw.connect('state-set', lambda s, g: self._set_autostart(s.get_active()))
         self._add_row(card, 'Open TinyHand when you log in', widget=login_sw)
 
     # === Pointers Section ===
@@ -348,8 +349,6 @@ class SettingsWindow(Gtk.Window):
                       widget=toolbar_sw)
         self._add_separator(card)
         
-        ink_sw = self._create_toggle('showInkButton', True)
-        self._add_row(card, 'Ink button', detail='Change the colour while you present.', widget=ink_sw)
 
         # In your toolbar
         self._add_toolbar_slots(parent)
@@ -509,8 +508,6 @@ class SettingsWindow(Gtk.Window):
         self._add_row(card, 'Size', widget=size_box)
         self._add_separator(card)
 
-        shadow_sw = self._create_toggle('showShadow', True)
-        self._add_row(card, 'Shadow under the pointer', widget=shadow_sw)
 
     # === Drawing Section ===
 
@@ -608,7 +605,7 @@ class SettingsWindow(Gtk.Window):
 
         # Laser card
         card = self._create_card(parent, None)
-        laser_sw = self._create_toggle('laserSound', False)
+        laser_sw = self._create_toggle('sound.laser', False)
         laser_sw.set_sensitive(hand_sound)
         self._add_row(card, 'Laser dot taps too', detail='Off by default, for quiet pointing.', widget=laser_sw)
         card.set_opacity(0.5 if not hand_sound else 1.0)
@@ -638,7 +635,7 @@ class SettingsWindow(Gtk.Window):
         version.get_style_context().add_class('th-detail')
         info.pack_start(version, False, False, 0)
 
-        desc = Gtk.Label(label='A tiny hand for your Mac. Free and open source.')
+        desc = Gtk.Label(label='A tiny hand for your screen. Free and open source.')
         desc.set_halign(Gtk.Align.START)
         set_font(desc, 12, 'normal')
         desc.get_style_context().add_class('th-detail')
@@ -731,6 +728,32 @@ class SettingsWindow(Gtk.Window):
         sep.get_style_context().add_class('th-separator')
         sep.set_margin_start(14)
         parent.pack_start(sep, False, False, 0)
+
+    def _set_autostart(self, on):
+        """Add or remove the autostart entry that launches TinyHand at login."""
+        from pathlib import Path
+
+        entry = Path.home() / '.config' / 'autostart' / 'tinyhand.desktop'
+        if not on:
+            try:
+                entry.unlink()
+            except FileNotFoundError:
+                pass
+            return
+        from . import paths
+
+        entry.parent.mkdir(parents=True, exist_ok=True)
+        repo = paths.REPO_DIR / 'linux'
+        entry.write_text(
+            '[Desktop Entry]\n'
+            'Type=Application\n'
+            'Name=TinyHand\n'
+            'Comment=A tiny hand that points at things on your screen\n'
+            f'Exec=python3 -m tinyhand_linux\n'
+            f'Path={repo}\n'
+            'X-GNOME-Autostart-enabled=true\n'
+            'Terminal=false\n'
+        )
 
     def _create_toggle(self, key, default=False):
         """Create a switch bound to a preference."""

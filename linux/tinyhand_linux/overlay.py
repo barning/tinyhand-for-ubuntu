@@ -31,6 +31,12 @@ from .tapsound import TapSound  # noqa: E402
 TICK_MS = 16
 ESCAPE_KEYSYM = "Escape"
 HINT_MARKER = paths.DATA_DIR / "hint_shown"
+
+# Ink colours from the macOS InkChoice enum (0xRRGGBB); "match" uses the pointer's own colour.
+INK_CHOICES = {
+    "red": 0xFF2E1F, "orange": 0xFF8A00, "yellow": 0xFFCC00, "green": 0x30C25A,
+    "blue": 0x0A84FF, "purple": 0x8754F2, "white": 0xFFFFFF, "black": 0x1D1D21,
+}
 # Open-menu tracking: clicks pass through while a menu is open over the top panel.
 # Verified with a real GTK menu (on while open, off after) and with no menu open.
 MENU_TRACKING = True
@@ -91,6 +97,7 @@ class Overlay:
                 self.on_needs_permission()
             return False
         self._ensure_window()
+        self._apply_appearance()
         self.is_active = True
         self._window.move(0, 0)
         self._window.stick()  # on every workspace, like macOS Space following
@@ -146,9 +153,26 @@ class Overlay:
         self._prefs.set("selectedStyle", style_id)
         if self._arm is not None:
             self._arm.style = style
+            self._apply_appearance()
             self._arm.queue_draw()
         if self._toolbar is not None:
             self._toolbar.select(style_id)
+
+    def _apply_appearance(self) -> None:
+        """Push pointer size, line fade and ink colour from preferences to the view."""
+        if self._arm is None:
+            return
+        self._arm.set_hand_len_frac(float(self._prefs.get("pointerSize") or 0.13))
+        self._arm.ink.fade_seconds = float(self._prefs.get("fadeSeconds") or 0)
+        choice = str(self._prefs.get("inkChoice") or "match")
+        if choice in INK_CHOICES:
+            value = INK_CHOICES[choice]
+            self._arm.ink.color = ((value >> 16 & 0xFF) / 255, (value >> 8 & 0xFF) / 255, (value & 0xFF) / 255)
+        else:
+            style = pointer_style.style_by_id(self._style_id)
+            if style is not None:
+                self._arm.ink.color = tuple(v / 255 for v in style.ink)
+        self._arm.queue_draw()
 
     # ----- window ----------------------------------------------------------
 
@@ -192,6 +216,9 @@ class Overlay:
 
         self._window = window
         self._arm = arm
+        self._prefs.on_change("pointerSize", lambda _v: self._apply_appearance())
+        self._prefs.on_change("fadeSeconds", lambda _v: self._apply_appearance())
+        self._prefs.on_change("inkChoice", lambda _v: self._apply_appearance())
 
     def _apply_cursor(self, hidden: bool) -> None:
         if self._window is None or self._window.get_window() is None:
@@ -204,6 +231,9 @@ class Overlay:
 
     def _show_toolbar(self) -> None:
         if self._toolbar is None:
+            return
+        if not self._prefs.show_toolbar:
+            self._toolbar.hide()
             return
         self._toolbar.select(self._style_id)
         self._toolbar.set_sound(self._sound_on())
