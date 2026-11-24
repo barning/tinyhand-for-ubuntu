@@ -31,10 +31,9 @@ from .tapsound import TapSound  # noqa: E402
 TICK_MS = 16
 ESCAPE_KEYSYM = "Escape"
 HINT_MARKER = paths.DATA_DIR / "hint_shown"
-# Open-menu tracking (clicks pass through while a menu is open over the top panel).
-# Off by default: the check briefly reported a false menu at startup, which would
-# stop the overlay drawing. Turn on once it has been verified on a real desktop.
-MENU_TRACKING = False
+# Open-menu tracking: clicks pass through while a menu is open over the top panel.
+# Verified with a real GTK menu (on while open, off after) and with no menu open.
+MENU_TRACKING = True
 
 
 class Overlay:
@@ -333,7 +332,10 @@ class Overlay:
                 geom = child.get_geometry()
                 if geom.width >= root_w * 0.9 and geom.height >= root_h * 0.9:
                     continue  # full-screen compositor windows (e.g. mutter's guard window), not menus
-                if geom.width > 0 and geom.height > 0 and geom.y < self._top_inset + 4 and geom.y + geom.height > 0:
+                # A menu opens just under the panel: its top edge is near the panel, and it is
+                # not a sliver (tooltips and tray icons are small).
+                near_panel = geom.y <= self._top_inset + 80 and geom.y + geom.height > self._top_inset
+                if near_panel and geom.width >= 40 and geom.height >= 40 and geom.width <= root_w * 0.5:
                     return True
         except Exception as error:  # the X connection can hiccup; keep the overlay running
             log(f"menu check failed: {error}")
