@@ -18,7 +18,7 @@ import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 gi.require_version("GdkX11", "3.0")
-from gi.repository import Gdk, GdkX11, GLib, Gtk  # noqa: E402
+from gi.repository import Gdk, Gio, GdkX11, GLib, Gtk  # noqa: E402
 from Xlib import X  # noqa: E402
 from Xlib import display as xlib_display  # noqa: E402
 from Xlib.ext import shape  # noqa: E402
@@ -51,6 +51,8 @@ class Overlay:
         self._shift_down_at = 0.0
         self._last_shift_tap = 0.0
         self._xdisplay = None
+        self._lock_sub = None
+        self._top_inset = 0  # height of the top panel; clicks there reach the panel
         self._style_id = self._prefs.get("selectedStyle") or "lavender"
         self.is_active = False
         self.on_active_changed: Optional[Callable[[], None]] = None
@@ -86,7 +88,10 @@ class Overlay:
         self._ensure_window()
         self.is_active = True
         self._window.move(0, 0)
+        self._window.stick()  # on every workspace, like macOS Space following
         self._window.show_all()
+        self._top_inset = self._measure_top_inset()
+        self._watch_screen_lock()
         self._apply_cursor(hidden=True)
         self._arm.set_show_shadow(self._prefs.show_shadow)
         self._arm.pointer_hidden = False
@@ -268,7 +273,9 @@ class Overlay:
         self._arm.queue_draw()
 
         self._update_shift_latch(mask)
-        held = self._interact_held(mask) or self._latched
+        # Over the top panel the overlay lets clicks through, as macOS does for the menu bar.
+        over_panel = self._top_inset > 0 and y < self._top_inset
+        held = self._interact_held(mask) or self._latched or over_panel
         if held != self._click_through:
             self._set_click_through(held)
         return True
@@ -293,6 +300,34 @@ class Overlay:
                     self._last_shift_tap = now
             else:
                 self._last_shift_tap = 0.0
+
+    def _measure_top_inset(self) -> int:
+        """Height of a panel docked at the top of the primary monitor (0 if none)."""
+        display = Gdk.Display.get_default()
+        monitor = display.get_primary_monitor() or display.get_monitor(0)
+        if monitor is None:
+            return 0
+        geometry = monitor.get_geometry()
+        workarea = monitor.get_workarea()
+        return max(0, workarea.y - geometry.y)
+
+    def _watch_screen_lock(self) -> None:
+        """Turn the pointer off when the screen locks (GNOME and freedesktop screensaver signals)."""
+        if self._lock_sub is not None:
+            return
+        try:
+            bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        except GLib.Error:
+            return
+        self._lock_sub = bus.signal_subscribe(
+            None, "org.gnome.ScreenSaver", "ActiveChanged", "/org/gnome/ScreenSaver",
+            None, Gio.DBusSignalFlags.NONE, self._on_lock_changed, None)
+
+    def _on_lock_changed(self, _conn, _sender, _path, _iface, _signal, params, _data) -> None:
+        locked = bool(params.unpack()[0])
+        if locked and self.is_active:
+            log("screen locked: turning the pointer off")
+            self.deactivate()
 
     def _interact_held(self, mask) -> bool:
         """True while the chosen interact modifier is down (Alt by default)."""
