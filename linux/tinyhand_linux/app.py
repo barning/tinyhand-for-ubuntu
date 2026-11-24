@@ -91,9 +91,22 @@ class TinyHandApp(Gtk.Application):
     # ----- tray ------------------------------------------------------------
 
     def _build_tray(self) -> None:
-        self.tray = Gtk.StatusIcon()
-        self.tray.connect("activate", lambda _icon: self.toggle_pointer())
-        self.tray.connect("popup-menu", self._on_tray_popup)
+        # Prefer an AppIndicator (proper transparency in the top bar); fall back to a GTK status icon.
+        self._indicator = None
+        try:
+            import gi as _gi
+            _gi.require_version("AyatanaAppIndicator3", "0.1")
+            from gi.repository import AyatanaAppIndicator3 as AppIndicator
+            self._indicator = AppIndicator.Indicator.new(
+                "tinyhand", str(paths.ASSETS_DIR / "icon" / "tray-off.png"),
+                AppIndicator.IndicatorCategory.APPLICATION_STATUS)
+            self._indicator.set_status(AppIndicator.IndicatorStatus.ACTIVE)
+        except (ValueError, ImportError):
+            self._indicator = None
+        if self._indicator is None:
+            self.tray = Gtk.StatusIcon()
+            self.tray.connect("activate", lambda _icon: self.toggle_pointer())
+            self.tray.connect("popup-menu", self._on_tray_popup)
         self._update_tray_icon()
 
         menu = Gtk.Menu()
@@ -120,6 +133,8 @@ class TinyHandApp(Gtk.Application):
         menu.append(quit_item)
         menu.show_all()
         self._menu = menu
+        if getattr(self, "_indicator", None) is not None:
+            self._indicator.set_menu(menu)
 
     def _on_tray_popup(self, icon, button, time) -> None:
         self._menu.popup(None, None, Gtk.StatusIcon.position_menu, icon, button, time)
@@ -128,12 +143,15 @@ class TinyHandApp(Gtk.Application):
         on = bool(self.overlay and self.overlay.is_active)
         # White tray icons for the dark top bar (the PNGs in assets/ are black silhouettes).
         name = "tray-on.png" if on else "tray-off.png"
-        self.tray.set_from_file(str(paths.ASSETS_DIR / "icon" / name))
-        self.tray.set_tooltip_text(
-            "TinyHand is on — click to turn off, right-click for the menu"
-            if on else
-            "TinyHand — click to turn on, right-click for the menu"
-        )
+        icon_path = str(paths.ASSETS_DIR / "icon" / name)
+        tooltip = ("TinyHand is on — click to turn off, right-click for the menu"
+                   if on else
+                   "TinyHand — click to turn on, right-click for the menu")
+        if getattr(self, "_indicator", None) is not None:
+            self._indicator.set_icon_full(icon_path, tooltip)
+        else:
+            self.tray.set_from_file(icon_path)
+            self.tray.set_tooltip_text(tooltip)
 
     def _refresh_menu(self) -> None:
         if self.sound_item is None:
