@@ -12,7 +12,7 @@ import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
-from gi.repository import Gio, Gtk  # noqa: E402
+from gi.repository import Gio, GLib, Gtk  # noqa: E402
 
 from . import automation, hotkeys, paths, prefs  # noqa: E402
 from .log import log  # noqa: E402
@@ -111,7 +111,7 @@ class TinyHandApp(Gtk.Application):
 
         menu = Gtk.Menu()
         self.toggle_item = Gtk.MenuItem(label="Turn pointer on")
-        self.toggle_item.connect("activate", lambda _i: self.toggle_pointer())
+        self.toggle_item.connect("activate", lambda _i: self._after_menu(self.toggle_pointer))
         menu.append(self.toggle_item)
 
         # Pointer choice lives in the menu too, so it works even when the toolbar is covered.
@@ -123,7 +123,7 @@ class TinyHandApp(Gtk.Application):
         self._prefs.on_change("pinnedStyles", lambda _v: self._rebuild_pointer_menu())
 
         clear_item = Gtk.MenuItem(label="Clear drawing")
-        clear_item.connect("activate", lambda _i: self.clear_ink())
+        clear_item.connect("activate", lambda _i: self._after_menu(self.clear_ink))
         menu.append(clear_item)
 
         self.sound_item = Gtk.CheckMenuItem(label="Tap Sound")
@@ -144,6 +144,14 @@ class TinyHandApp(Gtk.Application):
         if getattr(self, "_indicator", None) is not None:
             self._indicator.set_menu(menu)
 
+    def _after_menu(self, action) -> None:
+        """Run an action once the tray menu has released the pointer.
+
+        While GTK's menu still holds the pointer, the overlay can read the pointer from the
+        menu instead of the mouse, and the hand stays where the menu was.
+        """
+        GLib.timeout_add(200, lambda: (action(), False)[1])
+
     def _rebuild_pointer_menu(self) -> None:
         """Radio items for the pinned pointers; the current one is ticked."""
         from . import pointer_style
@@ -160,7 +168,7 @@ class TinyHandApp(Gtk.Application):
             item = Gtk.RadioMenuItem.new_with_label_from_widget(group, style.name)
             group = item
             item.set_active(style_id == current)
-            item.connect("activate", lambda _i, sid=style_id: self._on_toolbar_style(sid))
+            item.connect("activate", lambda _i, sid=style_id: self._after_menu(lambda: self._on_toolbar_style(sid)))
             self._pointer_submenu.append(item)
         self._pointer_submenu.show_all()
 
