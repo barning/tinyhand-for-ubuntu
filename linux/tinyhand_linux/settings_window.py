@@ -379,7 +379,7 @@ class SettingsWindow(Gtk.Window):
         header.pack_start(reset_btn, False, False, 0)
         group.pack_start(header, False, False, 0)
 
-        # Slots container using ListBox for reordering
+        # Slots container for the pinned pointers
         container = Gtk.Box()
         container.set_margin_top(10)
         container.set_margin_start(10)
@@ -392,32 +392,18 @@ class SettingsWindow(Gtk.Window):
         except Exception:
             pinned = []
 
-        # Create a ListBox for drag-and-drop reordering
-        listbox = Gtk.ListBox()
-        listbox.set_selection_mode(Gtk.SelectionMode.NONE)
-        listbox.set_activate_on_single_click(False)
-        
-        # Create a horizontal box to hold the listbox items
+        # Pinned pointers: move left/right with the arrows, remove with the cross.
         hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         container.add(hbox)
-        
-        # Store reference to update order
-        self._pinned_listbox = listbox
-        
-        # Build the row for pinned styles
         self._build_pinned_rows(hbox, pinned)
-        
-        # Connect reorder signal
-        listbox.connect('row-reordered', self._on_pinned_reordered)
-        
         group.pack_start(container, False, False, 0)
 
         # Description
         desc = Gtk.Label()
         if len(pinned) >= 5:
-            desc.set_text('The toolbar is full. Remove a pointer to add another. Drag to reorder.')
+            desc.set_text('The toolbar is full. Remove a pointer to add another.')
         else:
-            desc.set_text('Press + to add a pointer. Drag to reorder.')
+            desc.set_text('Use the arrows to reorder pointers.')
         desc.set_halign(Gtk.Align.START)
         set_font(desc, 11, 'normal')
         desc.get_style_context().add_class('th-detail')
@@ -446,7 +432,11 @@ class SettingsWindow(Gtk.Window):
         title.get_style_context().add_class('th-section-subtitle')
         header.pack_start(title, True, True, 0)
 
-        # 'Make your own' is not available on Linux yet (see README: known limits).
+        make_btn = Gtk.Button.new_with_label('Make your own...')
+        make_btn.get_style_context().add_class('th-text-btn')
+        make_btn.connect('clicked', self._on_make_hand)
+        header.pack_start(make_btn, False, False, 0)
+
         group.pack_start(header, False, False, 0)
 
         custom = [s for s in ALL_STYLES if s.kind == 'custom']
@@ -1031,9 +1021,107 @@ class SettingsWindow(Gtk.Window):
         # In a real implementation, this would open a popover
         pass
 
+    def _build_pinned_rows(self, hbox, pinned):
+        """One small control group per pinned pointer: move left, move right, remove."""
+        from . import pointer_style
+        by_id = {st.id: st for st in pointer_style.ALL_STYLES}
+        for i, style_id in enumerate(pinned):
+            style = by_id.get(style_id)
+            name = style.name if style is not None else style_id
+            item = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+            label = Gtk.Label(label=name)
+            label.set_tooltip_text(name)
+            item.pack_start(label, False, False, 0)
+            left = Gtk.Button(label='‹')
+            left.set_sensitive(i > 0)
+            left.connect('clicked', lambda _b, idx=i: self._move_pinned(idx, -1))
+            item.pack_start(left, False, False, 0)
+            right = Gtk.Button(label='›')
+            right.set_sensitive(i < len(pinned) - 1)
+            right.connect('clicked', lambda _b, idx=i: self._move_pinned(idx, 1))
+            item.pack_start(right, False, False, 0)
+            remove = Gtk.Button(label='×')
+            remove.set_tooltip_text('Remove from the toolbar')
+            remove.connect('clicked', lambda _b, idx=i: self._remove_pinned(idx))
+            item.pack_start(remove, False, False, 0)
+            hbox.pack_start(item, False, False, 0)
+
+    def _move_pinned(self, index, step):
+        """Swap a pinned pointer with its neighbour and rebuild the Pointers page."""
+        pinned = list(self.prefs.get('pinnedStyles') or [])
+        target = index + step
+        if 0 <= target < len(pinned):
+            pinned[index], pinned[target] = pinned[target], pinned[index]
+            self.prefs.set('pinnedStyles', pinned)
+            self._refresh_pointers_page()
+
+    def _remove_pinned(self, index):
+        """Take a pointer off the toolbar, keeping at least one."""
+        pinned = list(self.prefs.get('pinnedStyles') or [])
+        if len(pinned) > 1 and 0 <= index < len(pinned):
+            del pinned[index]
+            self.prefs.set('pinnedStyles', pinned)
+            self._refresh_pointers_page()
+
+    def _refresh_pointers_page(self):
+        """Rebuild the Pointers page so the arrows and labels match the saved order."""
+        title = dict(SECTIONS).get('pointers', 'Pointers')
+        old = self._content_stack.get_child_by_name('pointers')
+        if old is not None:
+            self._content_stack.remove(old)
+        self._content_stack.add_named(self._create_page('pointers', title), 'pointers')
+        self._content_stack.show_all()
+
     def _on_make_hand(self, btn):
-        """Start making a hand."""
-        pass
+        """Pick a PNG, check it, and add it as a custom pointer."""
+        import json
+        import uuid
+
+        from . import handmaker, pointer_style
+
+        dialog = Gtk.FileChooserDialog(title='Choose a hand image', transient_for=self,
+                                       action=Gtk.FileChooserAction.OPEN)
+        dialog.add_buttons('Cancel', Gtk.ResponseType.CANCEL, 'Open', Gtk.ResponseType.OK)
+        png = Gtk.FileFilter()
+        png.set_name('PNG images')
+        png.add_mime_type('image/png')
+        dialog.add_filter(png)
+        response = dialog.run()
+        path = dialog.get_filename()
+        dialog.destroy()
+        if response != Gtk.ResponseType.OK or not path:
+            return
+
+        try:
+            image, ink = handmaker.make(path)
+        except handmaker.HandProblem as problem:
+            self._show_error(problem.message)
+            return
+
+        pointer_style.CUSTOM_DIR.mkdir(parents=True, exist_ok=True)
+        hand_id = 'custom-' + uuid.uuid4().hex[:8]
+        handmaker.write(image, pointer_style.CUSTOM_DIR / f'{hand_id}.png')
+        try:
+            entries = json.loads(pointer_style.CUSTOM_LIST.read_text())
+        except (OSError, ValueError):
+            entries = []
+        name = f'My hand {len(entries) + 1}'
+        entries.append({'id': hand_id, 'name': name, 'ink': list(ink)})
+        pointer_style.CUSTOM_LIST.write_text(json.dumps(entries, indent=2))
+
+        pointer_style.reload_custom_styles()
+        pinned = list(self.prefs.get('pinnedStyles') or [])
+        if len(pinned) < 8:
+            pinned.append(hand_id)
+            self.prefs.set('pinnedStyles', pinned)
+        self._refresh_pointers_page()
+
+    def _show_error(self, message):
+        dialog = Gtk.MessageDialog(transient_for=self, flags=0,
+                                   message_type=Gtk.MessageType.ERROR,
+                                   buttons=Gtk.ButtonsType.OK, text=message)
+        dialog.run()
+        dialog.destroy()
 
     def _on_reset_all(self, btn):
         """Reset all settings."""

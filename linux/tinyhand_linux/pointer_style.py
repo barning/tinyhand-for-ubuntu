@@ -119,17 +119,35 @@ def style_by_id(style_id: str) -> Optional[PointerStyle]:
     return None
 
 
+CUSTOM_DIR = paths.CONFIG_DIR / "custom_hands"
+CUSTOM_LIST = CUSTOM_DIR / "hands.json"
+
+
 def load_custom_styles() -> List[PointerStyle]:
-    """Load custom pointer styles.
+    """Hands the user made with "Make your own", read from CONFIG_DIR/custom_hands."""
+    import json
 
-    The Swift code (CustomHands) reads from a different location
-    (TinyHand/Hands under Application Support, not CONFIG_DIR),
-    so per PORT_PLAN we return empty list.
+    try:
+        entries = json.loads(CUSTOM_LIST.read_text())
+    except (OSError, ValueError):
+        return []
+    styles = []
+    for entry in entries:
+        image = CUSTOM_DIR / f"{entry['id']}.png"
+        if not image.exists():
+            continue
+        ink = tuple(entry.get("ink", RED))
+        styles.append(PointerStyle(id=entry["id"], name=entry.get("name", entry["id"]),
+                                   kind="custom", image_path=image, ink=ink))
+    return styles
 
-    Returns:
-        List of custom PointerStyle instances (currently empty).
-    """
-    return []
+
+def reload_custom_styles() -> None:
+    """Replace the custom entries in ALL_STYLES with what is on disk now."""
+    ALL_STYLES[:] = [st for st in ALL_STYLES if st.kind != "custom"] + load_custom_styles()
+
+
+ALL_STYLES.extend(load_custom_styles())
 
 
 if __name__ == "__main__":
