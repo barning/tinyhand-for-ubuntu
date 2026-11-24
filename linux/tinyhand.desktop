@@ -1,10 +1,13 @@
 [Desktop Entry]
 Type=Application
 Name=TinyHand
+GenericName=Pointer
 Comment=A tiny hand that points at things on your screen
-Exec=python3 -m tinyhand_linux %u
+Exec=env GDK_BACKEND=x11 python3 -m tinyhand_linux %u
 Path=/home/niklas/Code/tinyhand/linux
-Icon=/home/niklas/Code/tinyhand/assets/AppIcon.icns
+Icon=tinyhand
 Terminal=false
-Categories=Utility;
+Categories=Utility;Accessibility;
+Keywords=pointer;hand;presentation;
+StartupNotify=false
 MimeType=x-scheme-handler/tinyhand;

@@ -19,11 +19,20 @@ the module layout.
   provides `paplay` for tap sounds; `pipewire-bin` provides `pw-play`, and either
   works.
 
-## Run
+## Install and run
+
+Install once, then start TinyHand from the app grid like any other app:
 
 ```sh
 cd linux
-python3 -m tinyhand_linux
+./install.sh
+```
+
+Or run it from a terminal:
+
+```sh
+cd linux
+GDK_BACKEND=x11 python3 -m tinyhand_linux
 ```
 
 The tray icon appears in the top bar. Click it, or press **Ctrl+Alt+H**, to turn the
@@ -43,14 +52,8 @@ pointer on. Press **Esc** to turn it off.
 
 ## Links
 
-As on macOS, `tinyhand://` links control a running instance. Install the desktop
-entry once, so the scheme is routed to TinyHand:
-
-```sh
-cp tinyhand.desktop ~/.local/share/applications/
-update-desktop-database ~/.local/share/applications
-xdg-mime default tinyhand.desktop x-scheme-handler/tinyhand
-```
+As on macOS, `tinyhand://` links control a running instance. `install.sh` routes the
+scheme to TinyHand, so this works after installing:
 
 ```sh
 xdg-open tinyhand://toggle
